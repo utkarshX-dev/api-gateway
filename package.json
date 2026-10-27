@@ -1,0 +1,27 @@
+{
+  "name": "api-gateway",
+  "version": "1.0.0",
+  "description": "A custom API Gateway built with Node.js and Express",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.js",
+    "dev:all": "concurrently -k -n GATEWAY,USER-A,USER-B,PRODUCT-A,PRODUCT-B -c blue,green,green,yellow,yellow \"npx nodemon src/index.js\" \"npx nodemon test-services/user-service-a.js\" \"npx nodemon test-services/user-service-b.js\" \"npx nodemon test-services/product-service-a.js\" \"npx nodemon test-services/product-service-b.js\"",
+    "start": "node src/index.js",
+    "test": "echo \"Tests not configured yet\""
+  },
+  "keywords": [
+    "api-gateway",
+    "reverse-proxy",
+    "rate-limiter"
+  ],
+  "license": "ISC",
+  "devDependencies": {
+    "concurrently": "^10.0.6",
+    "nodemon": "^3.1.14"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "jsonwebtoken": "^9.0.3"
+  }
+}
