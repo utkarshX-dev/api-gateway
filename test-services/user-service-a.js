@@ -10,6 +10,8 @@ app.get("/health", (req, res) => {
   });
 });
 
+
+
 app.get("/users", (req, res) => {
   res.json({
     service: "User Service A",
@@ -17,6 +19,14 @@ app.get("/users", (req, res) => {
       { id: 1, name: "Rahul" },
       { id: 2, name: "Aman" },
     ],
+  });
+});
+
+app.get("/users/identity-test", (req, res) => {
+  res.status(200).json({
+    service: "user-service-a",
+    userId: req.headers["x-user-id"] ?? null,
+    role: req.headers["x-user-role"] ?? null,
   });
 });
 

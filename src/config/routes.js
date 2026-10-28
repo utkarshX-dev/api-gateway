@@ -5,7 +5,8 @@ export const routes = [
       "http://localhost:3001",
       "http://localhost:3002",
     ],
-    timeout: 5000
+    timeout: 5000,
+    auth: true,
   },
   {
     path: "/products",
@@ -13,6 +14,7 @@ export const routes = [
       "http://localhost:4001",
       "http://localhost:4002",
     ],
-    timeout: 5000
+    timeout: 5000,
+    auth: false,
   },
 ];

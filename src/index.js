@@ -1,62 +1,69 @@
-import express from "express";
-import { proxyRequest } from "./proxy/proxy-engine.js";
-import { createRoundRobinBalancer } from "./proxy/load-balancer.js";
-import { routes } from "./config/routes.js";
-import { createHealthMonitor } from "./health/health-monitor.js";
-import { createRateLimitMiddleware } from "./rate-limiter/rate-limit.middleware.js";
 
-const app = express();
+import app, { configureRoutes } from "./app.js";
+import {
+  connectRedis,
+  disconnectRedis,
+} from "./config/redis.js";
+
 const PORT = 4000;
 
-// Create ONE shared rate limiter for all API routes
-const rateLimitMiddleware = createRateLimitMiddleware({
-  limit: 5,
-  windowMs: 10_000,
-});
-
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "ok",
-    service: "api-gateway",
-  });
-});
+let server;
+let shuttingDown = false;
 
 async function startGateway() {
-  for (const route of routes) {
-    const healthMonitor = createHealthMonitor(route.targets, route.healthCheck);
+  await connectRedis();
+  await configureRoutes();
 
-    // Wait for initial health checks, if supported
-    if (typeof healthMonitor.start === "function") {
-      await healthMonitor.start();
-    }
-
-    const getNextService = createRoundRobinBalancer(() =>
-      healthMonitor.getHealthyTargets(),
-    );
-
-    // Reuse the SAME rate limiter for every route
-    app.use(route.path, rateLimitMiddleware, (req, res) => {
-      const target = getNextService();
-
-      if (!target) {
-        return res.status(503).json({
-          error: "Service Unavailable",
-          message: "No healthy upstream services available",
-        });
-      }
-
-      console.log(`Forwarding ${req.method} ${req.originalUrl} -> ${target}`);
-
-      proxyRequest(req, res, target, route.timeout);
-    });
-  }
-
-  app.listen(PORT, () => {
+  server = app.listen(PORT, () => {
     console.log(`API Gateway running at http://localhost:${PORT}`);
   });
 }
 
-startGateway().catch((error) => {
-  console.error("Failed to start API Gateway:", error);
+async function shutdown(signal) {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  console.log(`[Gateway] ${signal} received. Shutting down...`);
+
+  try {
+    if (server) {
+      await new Promise((resolve, reject) => {
+        server.close((error) => {
+          if (error) {
+            reject(error);
+          } else {
+            resolve();
+          }
+        });
+      });
+    }
+
+    await disconnectRedis();
+    process.exitCode = 0;
+  } catch (error) {
+    console.error("[Gateway] Shutdown failed:", error);
+    process.exitCode = 1;
+  }
+}
+
+process.once("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+process.once("SIGTERM", () => {
+  void shutdown("SIGTERM");
+});
+
+startGateway().catch(async (error) => {
+  console.error("[Gateway] Failed to start:", error);
+
+  try {
+    await disconnectRedis();
+  } catch (shutdownError) {
+    console.error("[Gateway] Redis cleanup failed:", shutdownError);
+  }
+
   process.exitCode = 1;
 });

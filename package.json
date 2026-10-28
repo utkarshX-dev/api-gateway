@@ -5,10 +5,10 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "dev": "nodemon src/index.js",
-    "dev:all": "concurrently -k -n GATEWAY,USER-A,USER-B,PRODUCT-A,PRODUCT-B -c blue,green,green,yellow,yellow \"npx nodemon src/index.js\" \"npx nodemon test-services/user-service-a.js\" \"npx nodemon test-services/user-service-b.js\" \"npx nodemon test-services/product-service-a.js\" \"npx nodemon test-services/product-service-b.js\"",
-    "start": "node src/index.js",
-    "test": "echo \"Tests not configured yet\""
+    "dev": "nodemon --exec \"node --env-file=.env\" src/index.js",
+    "dev:all": "concurrently -k -n GATEWAY,USER-A,USER-B,PRODUCT-A,PRODUCT-B -c blue,green,green,yellow,yellow \"node --env-file=.env ./node_modules/nodemon/bin/nodemon.js src/index.js\" \"npx nodemon test-services/user-service-a.js\" \"npx nodemon test-services/user-service-b.js\" \"npx nodemon test-services/product-service-a.js\" \"npx nodemon test-services/product-service-b.js\"",
+    "start": "node --env-file=.env src/index.js",
+    "test": "node --test"
   },
   "keywords": [
     "api-gateway",
@@ -18,10 +18,12 @@
   "license": "ISC",
   "devDependencies": {
     "concurrently": "^10.0.6",
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "supertest": "^7.3.1"
   },
   "dependencies": {
     "express": "^5.3.0",
-    "jsonwebtoken": "^9.0.3"
+    "jsonwebtoken": "^9.0.3",
+    "redis": "^6.3.0"
   }
 }

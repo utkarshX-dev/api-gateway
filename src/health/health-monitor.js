@@ -1,3 +1,4 @@
+
 export function createHealthMonitor(
   targets,
   {
@@ -6,17 +7,22 @@ export function createHealthMonitor(
     timeout = 2000,
     unhealthyThreshold = 2,
     healthyThreshold = 2,
-  } = {}
+  } = {},
 ) {
   const states = new Map(
     targets.map((target) => [
       target,
-      { healthy: true, failures: 0, successes: 0 },
-    ])
+      { healthy: false, failures: 0, successes: 0 },
+    ]),
   );
 
-  async function check(target) {
+  let timer = null;
+  let checking = false;
+  let started = false;
+
+  async function check(target, initial = false) {
     const state = states.get(target);
+    const wasHealthy = state.healthy;
 
     try {
       const response = await fetch(new URL(path, target), {
@@ -30,10 +36,11 @@ export function createHealthMonitor(
       state.successes++;
       state.failures = 0;
 
-      if (state.successes >= healthyThreshold) {
+      // Initial successful check makes the backend available immediately.
+      if (initial || state.successes >= healthyThreshold) {
         state.healthy = true;
       }
-    } catch {
+    } catch (error) {
       state.failures++;
       state.successes = 0;
 
@@ -41,21 +48,49 @@ export function createHealthMonitor(
         state.healthy = false;
       }
     }
+
+    if (wasHealthy !== state.healthy) {
+      console.log(
+        `[Health] ${target} is now ${
+          state.healthy ? "HEALTHY" : "UNHEALTHY"
+        }`,
+      );
+    }
   }
 
-  async function checkAll() {
-    await Promise.all([...states.keys()].map(check));
+  async function checkAll(initial = false) {
+    // Prevent overlapping health-check rounds.
+    if (checking) return;
+
+    checking = true;
+
+    try {
+      await Promise.all(
+        [...states.keys()].map((target) => check(target, initial)),
+      );
+    } finally {
+      checking = false;
+    }
   }
 
-  void checkAll();
+  async function start() {
+    if (started) return;
 
-  const timer = setInterval(() => {
-    void checkAll();
-  }, interval);
+    started = true;
 
-  timer.unref();
+    // Complete the first round before the gateway starts accepting traffic.
+    await checkAll(true);
+
+    timer = setInterval(() => {
+      void checkAll();
+    }, interval);
+
+    timer.unref();
+  }
 
   return {
+    start,
+
     getHealthyTargets() {
       return [...states.entries()]
         .filter(([, state]) => state.healthy)
@@ -63,7 +98,12 @@ export function createHealthMonitor(
     },
 
     stop() {
-      clearInterval(timer);
+      if (timer) {
+        clearInterval(timer);
+        timer = null;
+      }
+
+      started = false;
     },
 
     checkAll,

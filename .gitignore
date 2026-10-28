@@ -59,3 +59,5 @@ temp/
 .env.test.local
 .env.production.local
 ```
+
+readme.md

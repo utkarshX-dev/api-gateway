@@ -1,4 +1,45 @@
-export function createSlidingWindowLog({ limit = 5, windowMs = 10_000 } = {}) {
+
+import { randomUUID } from "node:crypto";
+import { redisClient } from "../config/redis.js";
+
+const SLIDING_WINDOW_SCRIPT = `
+local key = KEYS[1]
+local now = tonumber(ARGV[1])
+local windowMs = tonumber(ARGV[2])
+local limit = tonumber(ARGV[3])
+local member = ARGV[4]
+
+local windowStart = now - windowMs
+
+redis.call("ZREMRANGEBYSCORE", key, "-inf", windowStart)
+
+local count = redis.call("ZCARD", key)
+
+if count >= limit then
+  local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
+  local retryAfterMs = 0
+
+  if oldest[2] then
+    retryAfterMs = tonumber(oldest[2]) + windowMs - now
+  end
+
+  return {0, 0, math.max(0, retryAfterMs)}
+end
+
+redis.call("ZADD", key, now, member)
+redis.call("PEXPIRE", key, windowMs)
+
+local newCount = count + 1
+local remaining = limit - newCount
+
+return {1, remaining, 0}
+`;
+
+export function createSlidingWindowLog({
+  limit = 5,
+  windowMs = 10_000,
+  keyPrefix = "api-gateway:rate-limit",
+} = {}) {
   if (!Number.isInteger(limit) || limit < 1) {
     throw new Error("limit must be a positive integer");
   }
@@ -7,46 +48,43 @@ export function createSlidingWindowLog({ limit = 5, windowMs = 10_000 } = {}) {
     throw new Error("windowMs must be a positive number");
   }
 
-  const requestLogs = new Map();
+  if (!keyPrefix) {
+    throw new Error("keyPrefix is required");
+  }
 
-  function consume(clientId, now = Date.now()) {
+  async function consume(clientId, now = Date.now()) {
     if (!clientId) {
       throw new Error("clientId is required");
     }
 
-    const windowStart = now - windowMs;
-
-    // Client ke existing request timestamps nikalo.
-    const timestamps = requestLogs.get(clientId) ?? [];
-
-    // Sliding window se expired timestamps remove karo.
-    const recentTimestamps = timestamps.filter(
-      (timestamp) => timestamp > windowStart,
-    );
-
-    // Limit already reach ho chuki hai toh reject karo.
-    if (recentTimestamps.length >= limit) {
-      requestLogs.set(clientId, recentTimestamps);
-
-      const retryAfterMs = recentTimestamps[0] + windowMs - now;
-
-      return {
-        allowed: false,
-        limit,
-        remaining: 0,
-        retryAfterMs: Math.max(0, retryAfterMs),
-      };
+    if (!Number.isFinite(now)) {
+      throw new Error("now must be a finite number");
     }
 
-    // Allowed request ka timestamp record karo.
-    recentTimestamps.push(now);
-    requestLogs.set(clientId, recentTimestamps);
+    if (!redisClient.isReady) {
+      throw new Error("Redis is not connected or ready");
+    }
+
+    const key = `${keyPrefix}:${clientId}`;
+    const member = `${now}:${randomUUID()}`;
+
+    const result = await redisClient.eval(SLIDING_WINDOW_SCRIPT, {
+      keys: [key],
+      arguments: [
+        String(now),
+        String(windowMs),
+        String(limit),
+        member,
+      ],
+    });
+
+    const [allowed, remaining, retryAfterMs] = result;
 
     return {
-      allowed: true,
+      allowed: Number(allowed) === 1,
       limit,
-      remaining: limit - recentTimestamps.length,
-      retryAfterMs: 0,
+      remaining: Number(remaining),
+      retryAfterMs: Number(retryAfterMs),
     };
   }
 

@@ -20,6 +20,14 @@ app.get("/users", (req, res) => {
   });
 });
 
+app.get("/users/identity-test", (req, res) => {
+  res.status(200).json({
+    service: "user-service-b", // Service B mein "user-service-b" karna
+    userId: req.headers["x-user-id"] ?? null,
+    role: req.headers["x-user-role"] ?? null,
+  });
+});
+
 app.listen(PORT, () => {
   console.log(`User Service B running on port ${PORT}`);
 });
